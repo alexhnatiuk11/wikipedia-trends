@@ -99,64 +99,13 @@ def parse_data_arg(raw: str) -> dict:
     return {"label": sanitize_text(label), "fetch": fetch_data, "analysis": analysis_data}
 
 
-def _rolling_average(values: list, outlier_idx: set = None, window: int = 3) -> list:
-    """Trailing rolling average, computed with outlier points replaced by
-    linear interpolation from their non-outlier neighbors first - averaging
-    the *raw* values would still pull the smoothed line up around a spike
-    (it's still inside the window), defeating the point of showing the
-    underlying trend separately from one-off events."""
-    outlier_idx = outlier_idx or set()
-    clean = list(values)
-    non_outlier_idx = [i for i in range(len(values)) if i not in outlier_idx]
-    for i in sorted(outlier_idx):
-        left = max((j for j in non_outlier_idx if j < i), default=None)
-        right = min((j for j in non_outlier_idx if j > i), default=None)
-        if left is not None and right is not None:
-            clean[i] = clean[left] + (clean[right] - clean[left]) * (i - left) / (right - left)
-        elif left is not None:
-            clean[i] = clean[left]
-        elif right is not None:
-            clean[i] = clean[right]
-
-    out = []
-    for i in range(len(clean)):
-        lo = max(0, i - window + 1)
-        chunk = clean[lo:i + 1]
-        out.append(sum(chunk) / len(chunk))
-    return out
-
-
 def render_chart(entries: list, chart_path: Path) -> None:
     fig, ax = plt.subplots(figsize=(7.2, 3.2), dpi=150)
-    for i, entry in enumerate(entries):
+    for entry in entries:
         series = entry["fetch"]["series"]
         dates = [p["date"] for p in series]
         views = [p["views"] for p in series]
-        color = f"C{i % 10}"
-        ax.plot(dates, views, marker="o", markersize=2, linewidth=1, alpha=0.45, color=color, label=entry["label"])
-
-        outlier_dates = {o["date"] for o in entry["analysis"].get("outliers", [])}
-        # Partial periods (e.g. the current, still-ongoing month) distort the
-        # smoothed line the same way an outlier does - exclude them from
-        # smoothing too, not just statistical outliers.
-        partial_prefixes = set(entry["analysis"].get("dropped_partial_periods", []))
-        exclude_idx = {j for j, d in enumerate(dates) if d in outlier_dates or d[:7] in partial_prefixes}
-        # A 3-period rolling average overlay (excluded points interpolated
-        # out first, not just smoothed over) shows the underlying trend
-        # directly on the chart instead of leaving the reader to reconcile
-        # "the line spikes up" against a text-only explanation.
-        smoothed = _rolling_average(views, exclude_idx, window=3)
-        ax.plot(dates, smoothed, linewidth=2, color=color)
-
-        ox = [d for d in dates if d in outlier_dates]
-        oy = [v for d, v in zip(dates, views) if d in outlier_dates]
-        if ox:
-            ax.scatter(ox, oy, marker="x", s=50, color=color, zorder=5)
-
-        px = [d for d in dates if d[:7] in partial_prefixes]
-        py = [v for d, v in zip(dates, views) if d[:7] in partial_prefixes]
-        if px:
-            ax.scatter(px, py, marker="^", s=40, color=color, zorder=5, facecolors="none")
+        ax.plot(dates, views, marker="o", markersize=2, linewidth=1.5, label=entry["label"])
 
     ax.set_ylabel("Перегляди")
     # Placing the legend inside the plot (e.g. "upper right") covers up
@@ -181,12 +130,7 @@ def render_chart(entries: list, chart_path: Path) -> None:
         ax.set_xticks(range(0, len(dates), step))
         ax.set_xticklabels([dates[i] for i in range(0, len(dates), step)])
 
-    fig.text(0.01, 0.01,
-              "тьмяна лінія = сирі дані; жирна = згладжений тренд (3-міс. середнє); "
-              "✕ = виключена аномалія; △ = неповний період",
-              fontsize=6, color="#666666")
-
-    fig.tight_layout(rect=(0, 0.03, 1, 1))
+    fig.tight_layout()
     fig.savefig(chart_path, bbox_inches="tight")
     plt.close(fig)
 
