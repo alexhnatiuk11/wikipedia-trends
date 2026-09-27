@@ -29,6 +29,46 @@ MIN_VIEWS_PER_DAY = 15  # below this, a "trend" is mostly noise
 OUTLIER_Z_THRESHOLD = 3.0
 DAYS_IN_GRANULARITY = {"daily": 1, "monthly": 30.44}  # avg month length
 
+# `reasons[]` ends up embedded verbatim in the PDF (make_report.py), so if
+# this script always wrote Ukrainian regardless of the report's language,
+# every non-Ukrainian report would still have Ukrainian sentences mixed in
+# no matter what make_report.py's own strings were translated to. Falls back
+# to English for any language not listed here.
+STRINGS = {
+    "uk": {
+        "insufficient_periods": "Недостатньо періодів даних (після відкидання неповних) для будь-якого аналізу тренду.",
+        "low_sample": "Середній трафік ~{avg:.0f} переглядів/день — замало для статистично надійного висновку.",
+        "noisy": "Дані надто шумні: лінійний тренд практично не пояснює коливання (низький R²).",
+        "few_periods": "Мало періодів даних для аналізу ({n}) — оцінка тренду попередня.",
+        "outliers_found": "Виявлено та виключено аномальні сплески/провали: {dates} (ймовірно разові події, не тренд).",
+        "dropped_partial": "Відкинуто неповні періоди на межах діапазону: {periods}.",
+        "article_ref": "стаття «{article}» ({project})",
+        "riding_baseline": "Зміна {article_label} ({growth:.1f}%) близька до зміни всього {project} загалом ({baseline:.1f}%) — це схоже на загальний тренд трафіку проєкту, а не специфічний інтерес саме до теми.",
+        "growing_faster": "{article_label} зростає помітно швидше за проєкт загалом ({growth:.1f}% проти {baseline:.1f}% у {project}) — це специфічне зростання інтересу до теми, а не просто загальний тренд трафіку.",
+        "falling_faster": "{article_label} падає помітно швидше, ніж весь {project} загалом ({growth:.1f}% проти {baseline:.1f}%) — це специфічне падіння інтересу саме до теми, а не просто загальний тренд трафіку проєкту.",
+        "clean_trend": "Дані охоплюють достатньо періодів, стабільний трафік, чіткий лінійний тренд без аномалій.",
+    },
+    "en": {
+        "insufficient_periods": "Not enough data periods (after dropping incomplete ones) for any trend analysis.",
+        "low_sample": "Average traffic ~{avg:.0f} views/day - too little for a statistically reliable conclusion.",
+        "noisy": "Data is too noisy: the linear trend barely explains the variation (low R²).",
+        "few_periods": "Few data periods available ({n}) - trend estimate is preliminary.",
+        "outliers_found": "Anomalous spikes/dips detected and excluded: {dates} (likely one-off events, not trend).",
+        "dropped_partial": "Dropped incomplete periods at the edges of the range: {periods}.",
+        "article_ref": "article \"{article}\" ({project})",
+        "riding_baseline": "The change for {article_label} ({growth:.1f}%) is close to the change for all of {project} ({baseline:.1f}%) - this looks like the project's general traffic trend, not specific interest in the topic.",
+        "growing_faster": "{article_label} is growing noticeably faster than the project overall ({growth:.1f}% vs {baseline:.1f}% for {project}) - this is topic-specific growing interest, not just a general traffic trend.",
+        "falling_faster": "{article_label} is falling noticeably faster than all of {project} ({growth:.1f}% vs {baseline:.1f}%) - this is topic-specific declining interest, not just the project's general traffic trend.",
+        "clean_trend": "Data covers enough periods, traffic is stable, a clear linear trend with no anomalies.",
+    },
+}
+
+
+def t(lang: str, key: str, **kwargs) -> str:
+    table = STRINGS.get(lang, STRINGS["en"])
+    template = table.get(key, STRINGS["en"][key])
+    return template.format(**kwargs) if kwargs else template
+
 
 def _parse_date(d: str) -> date:
     y, m, day = d.split("-")
@@ -134,7 +174,7 @@ def _baseline_summary(baseline_data: dict) -> dict:
     }
 
 
-def analyze(data: dict, baseline_data: dict = None) -> dict:
+def analyze(data: dict, baseline_data: dict = None, lang: str = "en") -> dict:
     granularity = data["granularity"]
     series = data["series"]
 
@@ -147,7 +187,7 @@ def analyze(data: dict, baseline_data: dict = None) -> dict:
             "total_periods": len(cleaned),
             "dropped_partial_periods": dropped_periods,
             "confidence": "low",
-            "reasons": ["Недостатньо періодів даних (після відкидання неповних) для будь-якого аналізу тренду."],
+            "reasons": [t(lang, "insufficient_periods")],
         }
 
     views = [p["views"] for p in cleaned]
@@ -176,18 +216,16 @@ def analyze(data: dict, baseline_data: dict = None) -> dict:
     reasons = []
     low_sample = avg_views_per_day < MIN_VIEWS_PER_DAY
     if low_sample:
-        reasons.append(
-            f"Середній трафік ~{avg_views_per_day:.0f} переглядів/день — замало для статистично надійного висновку."
-        )
+        reasons.append(t(lang, "low_sample", avg=avg_views_per_day))
     if trend["r_squared"] < 0.1:
-        reasons.append("Дані надто шумні: лінійний тренд практично не пояснює коливання (низький R²).")
+        reasons.append(t(lang, "noisy"))
     if len(clean_y) < 6:
-        reasons.append(f"Мало періодів даних для аналізу ({len(clean_y)}) — оцінка тренду попередня.")
+        reasons.append(t(lang, "few_periods", n=len(clean_y)))
     if outlier_details:
         dates = ", ".join(o["date"] for o in outlier_details)
-        reasons.append(f"Виявлено та виключено аномальні сплески/провали: {dates} (ймовірно разові події, не тренд).")
+        reasons.append(t(lang, "outliers_found", dates=dates))
     if dropped_periods:
-        reasons.append(f"Відкинуто неповні періоди на межах діапазону: {', '.join(dropped_periods)}.")
+        reasons.append(t(lang, "dropped_partial", periods=", ".join(dropped_periods)))
 
     relative_growth_pct = None
     share_of_project_pct = None
@@ -209,24 +247,16 @@ def analyze(data: dict, baseline_data: dict = None) -> dict:
             # traffic trend - not a topic-specific signal either way. A large
             # gap (either direction) means the topic itself is gaining or
             # losing interest faster than Wikipedia readership as a whole.
-            article_label = f"стаття «{data['article']}» ({project})"
+            article_label = t(lang, "article_ref", article=data["article"], project=project)
             if abs(relative_growth_pct) <= 5:
-                reasons.append(
-                    f"Зміна {article_label} ({growth_pct:.1f}%) близька до зміни всього {project} загалом "
-                    f"({baseline_growth:.1f}%) — це схоже на загальний тренд трафіку проєкту, а не специфічний "
-                    f"інтерес саме до теми."
-                )
+                reasons.append(t(lang, "riding_baseline", article_label=article_label,
+                                  growth=growth_pct, project=project, baseline=baseline_growth))
             elif relative_growth_pct > 0:
-                reasons.append(
-                    f"{article_label} зростає помітно швидше за проєкт загалом ({growth_pct:.1f}% проти {baseline_growth:.1f}% "
-                    f"у {project}) — це специфічне зростання інтересу до теми, а не просто загальний тренд трафіку."
-                )
+                reasons.append(t(lang, "growing_faster", article_label=article_label,
+                                  growth=growth_pct, project=project, baseline=baseline_growth))
             else:
-                reasons.append(
-                    f"{article_label} падає помітно швидше, ніж весь {project} загалом ({growth_pct:.1f}% проти "
-                    f"{baseline_growth:.1f}%) — це специфічне падіння інтересу саме до теми, а не просто загальний "
-                    f"тренд трафіку проєкту."
-                )
+                reasons.append(t(lang, "falling_faster", article_label=article_label,
+                                  growth=growth_pct, project=project, baseline=baseline_growth))
 
     if low_sample or trend["r_squared"] < 0.1:
         confidence = "low"
@@ -236,7 +266,7 @@ def analyze(data: dict, baseline_data: dict = None) -> dict:
         confidence = "high"
 
     if not reasons:
-        reasons.append("Дані охоплюють достатньо періодів, стабільний трафік, чіткий лінійний тренд без аномалій.")
+        reasons.append(t(lang, "clean_trend"))
 
     return {
         "project": data["project"],
@@ -268,6 +298,12 @@ def main():
         "--no-baseline", action="store_true",
         help="Skip the automatic whole-project baseline comparison (growth vs project rides on faith instead).",
     )
+    parser.add_argument(
+        "--language", default="en",
+        help="Language for the human-readable 'reasons' text (not a Wikipedia project code) - match the "
+             "user's language so the eventual report doesn't mix languages. Defaults to English; falls "
+             "back to English for any language without a translation table.",
+    )
     args = parser.parse_args()
 
     raw = open(args.input).read() if args.input else sys.stdin.read()
@@ -297,7 +333,7 @@ def main():
         except RuntimeError:
             pass  # baseline is a nice-to-have; don't fail the whole analysis over it
 
-    print(json.dumps(analyze(data, baseline_data), ensure_ascii=False, indent=2))
+    print(json.dumps(analyze(data, baseline_data, lang=args.language), ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

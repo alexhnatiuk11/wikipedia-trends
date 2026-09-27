@@ -50,8 +50,10 @@ python scripts/fetch_pageviews.py --lang pl --article "Sztuczna_inteligencja" \
 
 ```bash
 python scripts/fetch_pageviews.py --lang pl --article "..." --start ... --end ... --granularity monthly \
-    | python scripts/analyze_trends.py
+    | python scripts/analyze_trends.py --language <user's language, e.g. uk, en, pl>
 ```
+
+**Always pass `--language` matching the language the user is writing in** (an ISO code like `uk`, `en`, `pl` — whatever they're using, not necessarily the Wikipedia language being analyzed, which is unrelated). This controls the language of `reasons[]` and every fixed string in the eventual PDF (see step 4) — omitting it, or passing a mismatched one, produces a report mixing languages (this happened for real: Ukrainian boilerplate text next to an English title/recommendation). Only `uk` and `en` have full translations right now; anything else falls back to English, which is still internally consistent, just not the user's language — mention that limitation if it applies.
 
 By default this **automatically** fetches the whole-project baseline for the same period and period-cleans/outlier-cleans the data — you don't need a separate step. Key output fields:
 
@@ -78,8 +80,11 @@ python scripts/make_report.py \
     --data "cs:cs_pageviews.json:cs_analysis.json" \
     --missing "uk (стаття не знайдена)" \
     --recommendation "<your own judgment call - see below, required>" \
+    --language <same code you passed to analyze_trends.py> \
     --output reports/<slug>.pdf
 ```
+
+**`--language` here must match what you passed to `analyze_trends.py`** — this controls every fixed heading/sentence in the PDF and chart axis labels (the title/question/recommendation/labels you write yourself should already be in that language too, since you write those directly). Write `--title`, `--question`, `--recommendation`, and `--data` labels in the user's language regardless of what language the Wikipedia articles themselves are in.
 
 - One `--data label:fetch_json_path:analysis_json_path` per language/topic being compared; save each script's JSON to a file first (e.g. via `> file.json`) since this script reads them by path, not stdin. Save these intermediate JSON files under `data/` in the skill directory (create it if missing), named so the user can tell what they are (e.g. `data/<topic-slug>_<lang>_pageviews.json`, `data/<topic-slug>_<lang>_analysis.json`) — this is a persistent archive of every analysis, not a scratch location, so don't put it in `/tmp`.
 - **`--recommendation` is required and must be an actual opinion, not a restatement of the numbers.** Say what you'd prioritize and why, given the data. The script automatically computes and lists which entries are risky to lean on (low confidence, or a Tier 2 broad-proxy match) right under your text — you don't need to repeat those, just factor them into your judgment (e.g. don't recommend prioritizing an option you know is flagged low-confidence without saying why you'd still take that risk, if you would).

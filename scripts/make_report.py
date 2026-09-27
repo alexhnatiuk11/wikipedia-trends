@@ -39,7 +39,72 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import ListFlowable, ListItem, Paragraph, SimpleDocTemplate, Spacer
 
-DATA_SOURCE_NOTE = "Джерело даних: Wikimedia Pageviews API (wikimedia.org/api/rest_v1/metrics/pageviews)."
+DATA_SOURCE_NOTE = "Wikimedia Pageviews API (wikimedia.org/api/rest_v1/metrics/pageviews)"
+
+# All fixed/boilerplate report text (headings, disclaimers, template
+# sentences) lives here per language, so the whole report - not just the
+# agent-supplied title/recommendation - comes out in one consistent
+# language. Previously these were hardcoded in Ukrainian while the caller's
+# title/recommendation could be in any language, producing mixed-language
+# reports. Falls back to English for any language not listed here, so an
+# unsupported language still stays internally consistent rather than
+# silently reverting to Ukrainian.
+STRINGS = {
+    "uk": {
+        "chart_note": "Графік динаміки збережено окремо: {name}",
+        "request_label": "Запит: {question}",
+        "methodology_heading": "Методологія порівняння",
+        "methodology_single": "Один запис — дані взято зі спеціалізованої статті на цю тему (відповідник поняття у Wikidata), порівняння між мовами тут не застосовується.",
+        "methodology_clean": "Кожен запис - це трафік окремої спеціалізованої статті на Wikipedia (не сурогатний/ширший показник) - це пряме, методологічно чисте порівняння без додаткових застережень щодо зіставності даних.",
+        "methodology_tier2": "Для {names} немає власної спеціалізованої статті на цю тему, тому використано ширшу/загальну статтю як наближений показник. Це слабший сигнал з двох причин: (1) широка стаття зазвичай описує тему загалом, а не саме ту практику/намір, що порівнюється, тому може відображати геть інший інтерес читачів; (2) широкі \"хабові\" статті отримують значну частку переглядів випадково - через посилання з інших статей, а не через цілеспрямований пошук, тому їхній трафік зашумленіший і менш показовий, ніж трафік вузької, свідомо знайденої статті. Порівнюйте ці записи з рештою обережно.",
+        "summary_heading": "Підсумок",
+        "change_word": "зміна",
+        "confidence_word": "довіра",
+        "share_suffix": ", частка від проєкту: {pct:.4f}%",
+        "na": "н/д",
+        "recommendation_heading": "Рекомендація",
+        "risk_lead": "Ризиковано покладатись на:",
+        "risk_low_confidence": "низька статистична довіра",
+        "risk_tier2": "дані лише по ширшому/суміжному поняттю, не по спеціалізованій темі",
+        "assumptions_heading": "Припущення та обмеження",
+        "missing_data": "Дані відсутні для: {names} - статті на цю тему немає у відповідному мовному розділі Wikipedia, тому вони не включені в порівняння вище.",
+        "standing_disclaimer": "Перегляди Wikipedia відображають цікавість/обізнаність, а не намір навчатись чи платити - трактуйте як сигнал для подальшої перевірки, а не остаточний доказ попиту.",
+        "outlier_note": "На графіку можуть впадати в очі різкі сплески — {parts}. Це разові аномалії (детальніше - у \"Припущення та обмеження\" нижче), вони НЕ враховані в тренд/зміну %, зазначені в підсумку - тому підсумок може виглядати інакше, ніж загальна форма графіка.",
+        "views_axis": "Перегляди",
+        "views_axis_log": "Перегляди (лог. шкала)",
+        "footer": "Джерело даних: {source}. Період: {period}. Згенеровано: {generated}.",
+    },
+    "en": {
+        "chart_note": "Chart saved separately: {name}",
+        "request_label": "Request: {question}",
+        "methodology_heading": "Comparison methodology",
+        "methodology_single": "Single entry - data comes from the specialized article on this topic (its Wikidata concept match); cross-language comparison doesn't apply here.",
+        "methodology_clean": "Every entry is traffic for its own specialized Wikipedia article (not a broader/surrogate proxy) - this is a direct, methodologically clean comparison with no additional caveats about data comparability.",
+        "methodology_tier2": "{names} has no specialized article of its own on this topic, so a broader/generic article was used as an approximate proxy. That's a weaker signal for two reasons: (1) a broad article usually describes the topic in general, not the specific practice/intent being compared, so its readership may reflect a completely different interest; (2) broad \"hub\" articles get a large share of their traffic incidentally - via links from other articles, not deliberate search - so their traffic is noisier and less indicative than a narrowly, deliberately-found article's traffic. Compare these entries against the rest with caution.",
+        "summary_heading": "Summary",
+        "change_word": "change",
+        "confidence_word": "confidence",
+        "share_suffix": ", share of project: {pct:.4f}%",
+        "na": "n/a",
+        "recommendation_heading": "Recommendation",
+        "risk_lead": "Risky to rely on:",
+        "risk_low_confidence": "low statistical confidence",
+        "risk_tier2": "data only for a broader/related concept, not the specialized topic",
+        "assumptions_heading": "Assumptions & limitations",
+        "missing_data": "No data for: {names} - no article on this topic exists in the corresponding language edition of Wikipedia, so they aren't included in the comparison above.",
+        "standing_disclaimer": "Wikipedia pageviews reflect curiosity/awareness, not intent to learn or pay - treat this as a signal worth further validation, not final proof of demand.",
+        "outlier_note": "The chart may show sharp spikes that catch the eye — {parts}. These are one-off anomalies (see \"Assumptions & limitations\" below for details) and are NOT included in the trend/% change reported in the summary - so the summary can look different from the chart's overall shape.",
+        "views_axis": "Views",
+        "views_axis_log": "Views (log scale)",
+        "footer": "Data source: {source}. Period: {period}. Generated: {generated}.",
+    },
+}
+
+
+def t(lang: str, key: str, **kwargs) -> str:
+    table = STRINGS.get(lang, STRINGS["en"])
+    template = table.get(key, STRINGS["en"][key])
+    return template.format(**kwargs) if kwargs else template
 
 # reportlab's built-in fonts (Helvetica etc.) have no Cyrillic glyphs, which
 # silently renders Ukrainian/Polish/Czech text as black boxes. matplotlib
@@ -99,7 +164,7 @@ def parse_data_arg(raw: str) -> dict:
     return {"label": sanitize_text(label), "fetch": fetch_data, "analysis": analysis_data}
 
 
-def render_chart(entries: list, chart_path: Path) -> None:
+def render_chart(entries: list, chart_path: Path, lang: str = "en") -> None:
     fig, ax = plt.subplots(figsize=(7.2, 3.2), dpi=150)
     for entry in entries:
         series = entry["fetch"]["series"]
@@ -107,7 +172,7 @@ def render_chart(entries: list, chart_path: Path) -> None:
         views = [p["views"] for p in series]
         ax.plot(dates, views, marker="o", markersize=2, linewidth=1.5, label=entry["label"])
 
-    ax.set_ylabel("Перегляди")
+    ax.set_ylabel(t(lang, "views_axis"))
     # Placing the legend inside the plot (e.g. "upper right") covers up
     # whichever curve happens to be there, and placing it to the *right* of
     # the plot breaks the layout when labels are long (e.g. a Tier 2
@@ -126,7 +191,7 @@ def render_chart(entries: list, chart_path: Path) -> None:
         min_views = [min((p["views"] for p in e["fetch"]["series"]), default=0) for e in entries]
         if max_views and min(min_views) > 0 and max(max_views) / max(min(max_views), 1) > 20:
             ax.set_yscale("log")
-            ax.set_ylabel("Перегляди (лог. шкала)")
+            ax.set_ylabel(t(lang, "views_axis_log"))
 
     if len(dates) > 12:
         step = max(1, len(dates) // 12)
@@ -138,7 +203,7 @@ def render_chart(entries: list, chart_path: Path) -> None:
     plt.close(fig)
 
 
-def render_interactive_chart(entries: list, html_path: Path) -> None:
+def render_interactive_chart(entries: list, html_path: Path, lang: str = "en") -> None:
     """A static PNG can't do what's often actually needed when comparing
     several series: hide one curve to see another clearly, zoom into a date
     range, or read exact values. Plotly produces a single self-contained
@@ -158,7 +223,7 @@ def render_interactive_chart(entries: list, html_path: Path) -> None:
         ))
 
     fig.update_layout(
-        yaxis_title="Перегляди",
+        yaxis_title=t(lang, "views_axis"),
         xaxis_title=None,
         template="plotly_white",
         hovermode="x unified",
@@ -186,7 +251,7 @@ def _effective_tier2_labels(entries: list, tier2_labels: list) -> list:
     return list(explicit | auto)
 
 
-def methodology_note(entries: list, tier2_labels: list) -> str:
+def methodology_note(entries: list, tier2_labels: list, lang: str = "en") -> str:
     """Explain, in the reader's own report (not just chat), whether this is a
     clean apples-to-apples comparison of the same specialized concept across
     languages, or whether some languages fall back to a broader/generic proxy
@@ -199,28 +264,14 @@ def methodology_note(entries: list, tier2_labels: list) -> str:
     specialized article's traffic."""
     tier2 = [e for e in entries if e["label"] in (tier2_labels or [])]
     if len(entries) == 1:
-        return (
-            "Один запис — дані взято зі спеціалізованої статті на цю тему (відповідник поняття у Wikidata), "
-            "порівняння між мовами тут не застосовується."
-        )
+        return t(lang, "methodology_single")
     if not tier2:
-        return (
-            "Кожен запис - це трафік окремої спеціалізованої статті на Wikipedia (не сурогатний/ширший "
-            "показник) - це пряме, методологічно чисте порівняння без додаткових застережень щодо "
-            "зіставності даних."
-        )
+        return t(lang, "methodology_clean")
     tier2_names = ", ".join(e["label"] for e in tier2)
-    return (
-        f"Для {tier2_names} немає власної спеціалізованої статті на цю тему, тому використано ширшу/загальну "
-        f"статтю як наближений показник. Це слабший сигнал з двох причин: (1) широка стаття зазвичай описує "
-        f"тему загалом, а не саме ту практику/намір, що порівнюється, тому може відображати геть інший інтерес "
-        f"читачів; (2) широкі \"хабові\" статті отримують значну частку переглядів випадково - через посилання "
-        f"з інших статей, а не через цілеспрямований пошук, тому їхній трафік зашумленіший і менш показовий, "
-        f"ніж трафік вузької, свідомо знайденої статті. Порівнюйте ці записи з рештою обережно."
-    )
+    return t(lang, "methodology_tier2", names=tier2_names)
 
 
-def risk_flags(entries: list, tier2_labels: list = None) -> list:
+def risk_flags(entries: list, tier2_labels: list = None, lang: str = "en") -> list:
     """Objective, data-backed reasons an entry is risky to lean on - low
     statistical confidence, or a Tier 2 (broad/generic proxy) concept match.
     This is computed from numbers already in hand, not a judgment call - the
@@ -231,36 +282,52 @@ def risk_flags(entries: list, tier2_labels: list = None) -> list:
     for entry in entries:
         reasons = []
         if entry["analysis"].get("confidence") == "low":
-            reasons.append("низька статистична довіра")
+            reasons.append(t(lang, "risk_low_confidence"))
         if entry["label"] in tier2_set:
-            reasons.append("дані лише по ширшому/суміжному поняттю, не по спеціалізованій темі")
+            reasons.append(t(lang, "risk_tier2"))
         if reasons:
             flags.append(f"<b>{entry['label']}</b>: {'; '.join(reasons)}")
     return flags
 
 
-def summary_bullets(entries: list) -> list:
+TREND_WORDS = {
+    "uk": {"increasing": "зростає", "decreasing": "спадає", "flat_or_noisy": "стабільно/шумно"},
+}
+CONFIDENCE_WORDS = {
+    "uk": {"high": "висока", "medium": "середня", "low": "низька"},
+}
+
+
+def _trend_word(trend: str, lang: str) -> str:
+    return TREND_WORDS.get(lang, {}).get(trend, trend or "n/a")
+
+
+def _confidence_word(confidence: str, lang: str) -> str:
+    return CONFIDENCE_WORDS.get(lang, {}).get(confidence, confidence or "n/a")
+
+
+def summary_bullets(entries: list, lang: str = "en") -> list:
     bullets = []
+    na = t(lang, "na")
     for entry in entries:
         a = entry["analysis"]
         growth = a.get("growth_pct")
-        growth_str = f"{growth:+.1f}%" if growth is not None else "н/д"
+        growth_str = f"{growth:+.1f}%" if growth is not None else na
         share = a.get("share_of_project_pct")
-        share_str = f", частка від проєкту: {share:.4f}%" if share is not None else ""
+        share_str = t(lang, "share_suffix", pct=share) if share is not None else ""
+        trend_str = _trend_word(a.get("trend"), lang)
+        confidence_str = _confidence_word(a.get("confidence"), lang) if a.get("confidence") else na
         bullets.append(
-            f"<b>{entry['label']}</b>: зміна {growth_str} ({a.get('trend', 'н/д')}), "
-            f"довіра: <b>{a.get('confidence', 'н/д')}</b>{share_str}"
+            f"<b>{entry['label']}</b>: {t(lang, 'change_word')} {growth_str} ({trend_str}), "
+            f"{t(lang, 'confidence_word')}: <b>{confidence_str}</b>{share_str}"
         )
     return bullets
 
 
-def assumptions_and_limitations(entries: list, missing_labels: list = None) -> list:
+def assumptions_and_limitations(entries: list, missing_labels: list = None, lang: str = "en") -> list:
     seen = []
     if missing_labels:
-        seen.append(
-            f"Дані відсутні для: {', '.join(missing_labels)} - статті на цю тему немає у відповідному "
-            f"мовному розділі Wikipedia, тому вони не включені в порівняння вище."
-        )
+        seen.append(t(lang, "missing_data", names=", ".join(missing_labels)))
     multiple = len(entries) > 1
     for entry in entries:
         for reason in entry["analysis"].get("reasons", []):
@@ -270,14 +337,11 @@ def assumptions_and_limitations(entries: list, missing_labels: list = None) -> l
             labeled = f"<b>{entry['label']}</b>: {reason}" if multiple else reason
             if labeled not in seen:
                 seen.append(labeled)
-    seen.append(
-        "Перегляди Wikipedia відображають цікавість/обізнаність, а не намір навчатись чи платити - "
-        "трактуйте як сигнал для подальшої перевірки, а не остаточний доказ попиту."
-    )
+    seen.append(t(lang, "standing_disclaimer"))
     return seen
 
 
-def outlier_chart_note(entries: list) -> str:
+def outlier_chart_note(entries: list, lang: str = "en") -> str:
     """The chart plots every raw point, including outlier spikes - if one
     lands late in the period, the line visually shoots up at the end, which
     reads as "growth" even when growth_pct (computed with those points
@@ -294,15 +358,12 @@ def outlier_chart_note(entries: list) -> str:
             parts.append(f"{prefix}{dates}")
     if not parts:
         return None
-    return (
-        "На графіку можуть впадати в очі різкі сплески — " + "; ".join(parts) + ". "
-        "Це разові аномалії (детальніше - у \"Припущення та обмеження\" нижче), вони НЕ враховані в "
-        "тренд/зміну %, зазначені в підсумку - тому підсумок може виглядати інакше, ніж загальна форма графіка."
-    )
+    return t(lang, "outlier_note", parts="; ".join(parts))
 
 
 def build_pdf(output_path: Path, title: str, question: str, entries: list, chart_path: Path,
-              missing_labels: list = None, tier2_labels: list = None, recommendation: str = None) -> None:
+              missing_labels: list = None, tier2_labels: list = None, recommendation: str = None,
+              lang: str = "en") -> None:
     tier2_labels = _effective_tier2_labels(entries, tier2_labels)
 
     # More languages/topics means more summary + assumptions bullets, and a
@@ -311,12 +372,12 @@ def build_pdf(output_path: Path, title: str, question: str, entries: list, chart
     # (a "+1" for a 5-sentence recommendation is way off), so weight bullets
     # by roughly how many lines they'd wrap to (~80 chars/line at this font
     # size) instead of just counting entries.
-    all_bullets = (summary_bullets(entries) + assumptions_and_limitations(entries, missing_labels)
-                   + risk_flags(entries, tier2_labels))
+    all_bullets = (summary_bullets(entries, lang) + assumptions_and_limitations(entries, missing_labels, lang)
+                   + risk_flags(entries, tier2_labels, lang))
     content_score = sum(max(1, len(b) // 80 + 1) for b in all_bullets)
     if recommendation:
         content_score += len(recommendation) // 80 + 1
-    outlier_note = outlier_chart_note(entries)
+    outlier_note = outlier_chart_note(entries, lang)
     if outlier_note:
         content_score += len(outlier_note) // 80 + 1
     if content_score > 26:
@@ -344,9 +405,9 @@ def build_pdf(output_path: Path, title: str, question: str, entries: list, chart
 
     story = [Paragraph(title, title_style)]
     if question:
-        story.append(Paragraph(f"Запит: {question}", question_style))
+        story.append(Paragraph(t(lang, "request_label", question=question), question_style))
     story.append(Paragraph(
-        f"Графік динаміки збережено окремо: {chart_path.name}",
+        t(lang, "chart_note", name=chart_path.name),
         ParagraphStyle("ChartNote", parent=question_style, spaceAfter=3 * scale),
     ))
     if outlier_note:
@@ -355,30 +416,30 @@ def build_pdf(output_path: Path, title: str, question: str, entries: list, chart
             ParagraphStyle("OutlierNote", parent=body_style, textColor=colors.HexColor("#8a5a00"), spaceAfter=8 * scale),
         ))
 
-    story.append(Paragraph("Методологія порівняння", heading_style))
-    story.append(Paragraph(methodology_note(entries, tier2_labels), body_style))
+    story.append(Paragraph(t(lang, "methodology_heading"), heading_style))
+    story.append(Paragraph(methodology_note(entries, tier2_labels, lang), body_style))
 
-    story.append(Paragraph("Підсумок", heading_style))
+    story.append(Paragraph(t(lang, "summary_heading"), heading_style))
     story.append(ListFlowable(
-        [ListItem(Paragraph(b, body_style)) for b in summary_bullets(entries)],
+        [ListItem(Paragraph(b, body_style)) for b in summary_bullets(entries, lang)],
         bulletType="bullet",
     ))
 
     if recommendation:
-        story.append(Paragraph("Рекомендація", heading_style))
+        story.append(Paragraph(t(lang, "recommendation_heading"), heading_style))
         story.append(Paragraph(recommendation, body_style))
-        flags = risk_flags(entries, tier2_labels)
+        flags = risk_flags(entries, tier2_labels, lang)
         if flags:
-            story.append(Paragraph("Ризиковано покладатись на:", ParagraphStyle(
+            story.append(Paragraph(t(lang, "risk_lead"), ParagraphStyle(
                 "RiskLead", parent=body_style, spaceBefore=3 * scale, fontName="DejaVuSans-Bold")))
             story.append(ListFlowable(
                 [ListItem(Paragraph(f, body_style)) for f in flags],
                 bulletType="bullet",
             ))
 
-    story.append(Paragraph("Припущення та обмеження", heading_style))
+    story.append(Paragraph(t(lang, "assumptions_heading"), heading_style))
     story.append(ListFlowable(
-        [ListItem(Paragraph(r, body_style)) for r in assumptions_and_limitations(entries, missing_labels)],
+        [ListItem(Paragraph(r, body_style)) for r in assumptions_and_limitations(entries, missing_labels, lang)],
         bulletType="bullet",
     ))
 
@@ -386,7 +447,7 @@ def build_pdf(output_path: Path, title: str, question: str, entries: list, chart
     generated = datetime.now().strftime("%Y-%m-%d %H:%M")
     periods = {(e["fetch"]["start"], e["fetch"]["end"]) for e in entries}
     period_str = ", ".join(f"{s}–{e}" for s, e in periods)
-    story.append(Paragraph(f"{DATA_SOURCE_NOTE} Період: {period_str}. Згенеровано: {generated}.", footer_style))
+    story.append(Paragraph(t(lang, "footer", source=DATA_SOURCE_NOTE, period=period_str, generated=generated), footer_style))
 
     doc.build(story)
 
@@ -417,6 +478,13 @@ def main():
              "article instead of the same specialized concept as the rest - triggers an explicit "
              "methodology caveat in the report instead of presenting them as directly comparable.",
     )
+    parser.add_argument(
+        "--language", default="en",
+        help="Language for ALL fixed report text (headings, disclaimers, etc.) - match the user's own "
+             "language so the report doesn't mix languages (previously this was hardcoded Ukrainian "
+             "regardless of the title/recommendation's language). Falls back to English if unsupported. "
+             "Must match the --language you passed to analyze_trends.py for the same reason.",
+    )
     args = parser.parse_args()
 
     try:
@@ -425,8 +493,8 @@ def main():
         print(json.dumps({"status": "error", "message": str(exc)}))
         sys.exit(1)
 
-    missing_labels = [sanitize_text(m.strip()) for m in args.missing.split(",") if m.strip()]
-    tier2_labels = [sanitize_text(t.strip()) for t in args.tier2.split(",") if t.strip()]
+    missing_labels = [sanitize_text(x.strip()) for x in args.missing.split(",") if x.strip()]
+    tier2_labels = [sanitize_text(x.strip()) for x in args.tier2.split(",") if x.strip()]
     title = sanitize_text(args.title)
     question = sanitize_text(args.question)
     recommendation = sanitize_text(args.recommendation)
@@ -434,9 +502,10 @@ def main():
     output_path = Path(args.output)
     chart_path = output_path.with_suffix(".chart.png")
     chart_html_path = output_path.with_suffix(".chart.html")
-    render_chart(entries, chart_path)
-    render_interactive_chart(entries, chart_html_path)
-    build_pdf(output_path, title, question, entries, chart_path, missing_labels, tier2_labels, recommendation)
+    render_chart(entries, chart_path, args.language)
+    render_interactive_chart(entries, chart_html_path, args.language)
+    build_pdf(output_path, title, question, entries, chart_path, missing_labels, tier2_labels,
+              recommendation, args.language)
 
     print(json.dumps({
         "status": "ok", "output": str(output_path),
