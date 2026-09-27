@@ -109,10 +109,13 @@ def render_chart(entries: list, chart_path: Path) -> None:
 
     ax.set_ylabel("Перегляди")
     # Placing the legend inside the plot (e.g. "upper right") covers up
-    # whichever curve happens to be there. Put it outside the axes instead,
-    # even though that costs some width - a legend can't obscure data it's
-    # never overlapping.
-    ax.legend(loc="upper left", bbox_to_anchor=(1.01, 1.0), fontsize=8, borderaxespad=0)
+    # whichever curve happens to be there, and placing it to the *right* of
+    # the plot breaks the layout when labels are long (e.g. a Tier 2
+    # parenthetical explanation) - the legend column can end up wider than
+    # the chart itself. Put it below the plot instead, wrapped into a few
+    # columns: long labels just add height, never squeeze the chart width.
+    ncol = 1 if len(entries) <= 2 else min(3, len(entries))
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.32), fontsize=7, ncol=ncol, frameon=False)
     ax.tick_params(axis="x", labelrotation=45, labelsize=7)
     ax.tick_params(axis="y", labelsize=8)
     # Wikipedia pageviews for a niche topic can be tiny for one language and
@@ -244,29 +247,11 @@ def summary_bullets(entries: list) -> list:
         growth_str = f"{growth:+.1f}%" if growth is not None else "н/д"
         share = a.get("share_of_project_pct")
         share_str = f", частка від проєкту: {share:.4f}%" if share is not None else ""
-        volatility = a.get("volatility_pct")
-        volatility_str = f", волатильність: {volatility:.0f}%" if volatility is not None else ""
-        recent = a.get("recent_growth_pct")
-        recent_str = f", останні періоди: {recent:+.1f}%" if recent is not None else ""
         bullets.append(
             f"<b>{entry['label']}</b>: зміна {growth_str} ({a.get('trend', 'н/д')}), "
-            f"довіра: <b>{a.get('confidence', 'н/д')}</b>{share_str}{volatility_str}{recent_str}"
+            f"довіра: <b>{a.get('confidence', 'н/д')}</b>{share_str}"
         )
     return bullets
-
-
-METRICS_GLOSSARY = (
-    "<b>Зміна (growth)</b> - різниця між середнім на початку і в кінці періоду (не перша/остання точка, стійкіше "
-    "до одиничних коливань). "
-    "<b>Довіра (confidence)</b> - наскільки статистично надійний цей тренд (обсяг даних, шум), а не наскільки "
-    "цьому можна довіряти як бізнес-сигналу. "
-    "<b>Частка від проєкту</b> - яку частку трафіку всього мовного розділу займає ця тема; дозволяє чесно "
-    "порівнювати мови різного розміру аудиторії. "
-    "<b>Волатильність</b> - наскільки \"стрибучі\" самі дані відносно свого середнього; висока волатильність "
-    "означає нестабільний ряд, навіть якщо загальний тренд надійний. "
-    "<b>Останні періоди</b> - зміна лише за останні кілька періодів окремо від зміни за весь строк - показує, "
-    "чи не змінився тренд нещодавно так, що це губиться в загальній цифрі."
-)
 
 
 def assumptions_and_limitations(entries: list, missing_labels: list = None) -> list:
@@ -328,7 +313,7 @@ def build_pdf(output_path: Path, title: str, question: str, entries: list, chart
     # size) instead of just counting entries.
     all_bullets = (summary_bullets(entries) + assumptions_and_limitations(entries, missing_labels)
                    + risk_flags(entries, tier2_labels))
-    content_score = sum(max(1, len(b) // 80 + 1) for b in all_bullets) + len(METRICS_GLOSSARY) // 80 + 1
+    content_score = sum(max(1, len(b) // 80 + 1) for b in all_bullets)
     if recommendation:
         content_score += len(recommendation) // 80 + 1
     outlier_note = outlier_chart_note(entries)
@@ -372,9 +357,6 @@ def build_pdf(output_path: Path, title: str, question: str, entries: list, chart
 
     story.append(Paragraph("Методологія порівняння", heading_style))
     story.append(Paragraph(methodology_note(entries, tier2_labels), body_style))
-
-    story.append(Paragraph("Що означають метрики", heading_style))
-    story.append(Paragraph(METRICS_GLOSSARY, body_style))
 
     story.append(Paragraph("Підсумок", heading_style))
     story.append(ListFlowable(

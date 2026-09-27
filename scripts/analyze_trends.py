@@ -116,39 +116,6 @@ def edge_average_growth(views: list) -> float:
     return (end_avg - start_avg) / start_avg * 100
 
 
-def volatility_pct(views: list) -> float:
-    """Coefficient of variation (stddev/mean, as %) on the outlier-cleaned
-    series. Two series can have the same `confidence` rating and `growth_pct`
-    but wildly different volatility - one steady, one constantly jumping
-    around its own trend line. `confidence` says "is the trend real"; this
-    says "how bumpy is the ride even if it is"."""
-    if len(views) < 2:
-        return 0.0
-    arr = np.array(views, dtype=float)
-    mean = arr.mean()
-    if mean == 0:
-        return 0.0
-    return float(arr.std() / mean * 100)
-
-
-def recent_growth_pct(views: list, window: int = 3) -> float:
-    """Growth over just the last `window` periods vs the `window` immediately
-    before them - a short lookback, independent of the full-period
-    `growth_pct`. Catches a recent inflection (accelerating decline, or a
-    turnaround that started only in the last few months) that an
-    edge-quartile comparison over the *entire* requested range can dilute or
-    hide entirely when the range is long."""
-    if len(views) < window * 2:
-        return None
-    recent = views[-window:]
-    prior = views[-window * 2:-window]
-    prior_avg = sum(prior) / len(prior)
-    recent_avg = sum(recent) / len(recent)
-    if prior_avg == 0:
-        return None
-    return (recent_avg - prior_avg) / prior_avg * 100
-
-
 def _baseline_summary(baseline_data: dict) -> dict:
     """Same cleaning pipeline (drop partial periods, drop outliers) applied to
     a whole-project series, reduced to the growth (for the relative-growth
@@ -195,8 +162,6 @@ def analyze(data: dict, baseline_data: dict = None) -> dict:
 
     trend = linear_trend(clean_x, clean_y)
     growth_pct = edge_average_growth(clean_y)
-    volatility = volatility_pct(clean_y)
-    recent_growth = recent_growth_pct(clean_y)
 
     day_length = DAYS_IN_GRANULARITY[granularity]
     avg_views_per_day = (sum(clean_y) / len(clean_y)) / day_length if clean_y else 0.0
@@ -223,16 +188,6 @@ def analyze(data: dict, baseline_data: dict = None) -> dict:
         reasons.append(f"Виявлено та виключено аномальні сплески/провали: {dates} (ймовірно разові події, не тренд).")
     if dropped_periods:
         reasons.append(f"Відкинуто неповні періоди на межах діапазону: {', '.join(dropped_periods)}.")
-    if volatility > 40:
-        reasons.append(
-            f"Висока волатильність (~{volatility:.0f}% коливання відносно середнього) — дані самі по собі "
-            f"нестабільні, навіть якщо загальний тренд статистично значущий."
-        )
-    if recent_growth is not None and growth_pct is not None and abs(recent_growth - growth_pct) > 20:
-        reasons.append(
-            f"Останні періоди показують іншу динаміку ({recent_growth:+.1f}%), ніж весь період загалом "
-            f"({growth_pct:+.1f}%) — можливий нещодавній перелом тренду, який довший період маскує."
-        )
 
     relative_growth_pct = None
     share_of_project_pct = None
@@ -294,8 +249,6 @@ def analyze(data: dict, baseline_data: dict = None) -> dict:
         "trend": direction,
         "r_squared": round(trend["r_squared"], 3),
         "avg_views_per_day": round(avg_views_per_day, 1),
-        "volatility_pct": round(volatility, 1),
-        "recent_growth_pct": round(recent_growth, 1) if recent_growth is not None else None,
         "share_of_project_pct": share_of_project_pct,
         "outliers": outlier_details,
         "confidence": confidence,
