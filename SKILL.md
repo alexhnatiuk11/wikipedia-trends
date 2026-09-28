@@ -105,6 +105,8 @@ But don't just stop there — **you must always propose a concrete alternative i
 - **If the user says no, or doesn't respond** (and you're not blocked from continuing without them) — leave that language out, exactly as `--missing` already documents, and move on. Don't invent a substitute and fetch it unasked.
 - **If no plausible alternative concept exists at all** — say so plainly ("для цієї мови не знайдено ні самої теми, ні спорідненого поняття") and leave it at that; don't force a weak match just to have something to offer.
 
+**The missing-language outcome must also land in the PDF itself, not just the chat reply.** Always pass `--missing` for the excluded language (per Step 4 below), and make the text you put there reflect what actually happened, not just "not found" — e.g. `--missing "uk (стаття не знайдена; знайдено споріднене поняття 'Х', користувач вирішив не включати)"` or `--missing "uk (стаття не знайдена; спорідненого поняття теж немає)"`. A reader of the PDF alone (who never saw the chat) should be able to tell the language was considered and why it's absent, not just that a language is silently missing from the chart.
+
 If a language legitimately *does* have its own specialized article but it happens to be a broader/more general one than the other languages' articles (a normal Wikidata modeling quirk, not something you searched for) — that's a genuine **Tier 2** case, distinct from the above:
 
 - **Tier 1 — specialized match**: the article's scope and intent genuinely match what's being compared.
