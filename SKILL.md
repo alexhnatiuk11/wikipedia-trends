@@ -31,7 +31,7 @@ Response `status` tells you what to do next:
 - **`ambiguous`** — `candidates` lists the plausible entities (with a `note` explaining why none was picked automatically, e.g. two unrelated meanings share the same word, or a coverage mismatch was detected). **Ask the user to pick one before continuing.** Never guess.
 - **`not_found`** — no matching Wikidata entity. Tell the user plainly; suggest rephrasing.
 
-`missing_languages` lists requested languages with no article for the resolved topic — see **Missing language** below for how to handle this.
+`missing_languages` lists requested languages with no article for the resolved topic. **This is never the end of the step for that language — you must always attempt an alternative before moving on.** See **Missing language** below for the mandatory procedure (propose a translated/related concept, warn it may not be equivalent, ask before including it). Skipping straight to "no article exists for X" without at least attempting this is not acceptable, even under time/turn pressure.
 
 ### Step 2 — fetch the pageviews time series
 
@@ -99,7 +99,12 @@ python scripts/make_report.py \
 
 When `resolve_topic.py` returns a language in `missing_languages`, **tell the user explicitly that no Wikipedia article/topic was found for that language** and leave it out of the comparison for now (use `make_report.py --missing` as documented below). **Never silently substitute a different concept and pass it off as the same topic.**
 
-But don't just stop there — **you must always propose a concrete alternative in the same reply**, and **warn about the consequence of using it**: try translating the query into that language yourself (using your own language knowledge) and re-running `resolve_topic.py --search-language <lang>` with the translated text to see if a related-but-not-identical Wikidata concept exists (e.g. "intermittent fasting" → pl has no article, but "Głodówka lecznicza" (therapeutic fasting) does). If that turns up a candidate, tell the user plainly: this is a different, related concept, not a confirmed equivalent, and mixing it into the comparison risks comparing two different things under one label — then **ask whether they want it included anyway**.
+But don't just stop there — **for every single language in `missing_languages`, before you write your final answer, you must actually run a second `resolve_topic.py` call with a translated query for that language and report what it found (or didn't).** This is a required action, not an optional suggestion to consider — "no article for pl" alone is an incomplete answer to this step even if everything else about the analysis is correct. Concretely, for each missing language:
+1. Translate the topic query into that language yourself (using your own language knowledge).
+2. Re-run `resolve_topic.py --search-language <lang>` with the translated text.
+3. Report the outcome either way — a candidate found (see below) or genuinely nothing found (also see below) — you cannot skip straight from "missing" to the final answer without having done step 2.
+
+If step 2 turns up a candidate, tell the user plainly: this is a related concept, not a confirmed equivalent, and mixing it into the comparison risks comparing two different things under one label — then **ask whether they want it included anyway**, and **warn what relying on it could mean** (e.g. skewed comparison, weaker signal) before they decide.
 
 - **If the user says yes** — fetch it and include it in the comparison, but label it clearly as a substitute (e.g. `"pl (Głodówka lecznicza — related but distinct concept, not a direct match)"`) and pass that label to `make_report.py --tier2` so the report's methodology section explains it too.
 - **If the user says no, or doesn't respond** (and you're not blocked from continuing without them) — leave that language out, exactly as `--missing` already documents, and move on. Don't invent a substitute and fetch it unasked.
