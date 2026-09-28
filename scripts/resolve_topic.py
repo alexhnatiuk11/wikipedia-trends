@@ -321,25 +321,6 @@ def resolve(query: str, langs: list, search_language: str, use_cache: bool = Tru
         }
         _save_cache(cache)
 
-    if result["missing_languages"]:
-        # A missing sitelink doesn't always mean "no article exists" - it can
-        # mean this Wikidata entity just has no label in the language we
-        # searched with, so a *related-but-distinct* local-language concept
-        # never showed up as a candidate at all (confirmed case: "intermittent
-        # fasting" has no Polish sitelink, but a related "Głodówka lecznicza"
-        # / therapeutic fasting entity does, invisible because it has no
-        # English label). Retrying wbsearchentities with a term translated
-        # into that language can find it - but the result is a DIFFERENT QID,
-        # not a confirmed equivalent, so it must be flagged, not silently
-        # treated as the same topic.
-        result["missing_languages_hint"] = (
-            "For each missing language, consider re-running this script with --search-language "
-            "set to that language and the query translated into it - Wikidata entities without a "
-            "label in the original search language are otherwise invisible even if a related local "
-            "article exists. Any match found this way is a potentially different (related) concept, "
-            "not a confirmed equivalent - disclose that explicitly rather than treating it as the same topic."
-        )
-
     return result
 
 

@@ -31,7 +31,7 @@ Response `status` tells you what to do next:
 - **`ambiguous`** — `candidates` lists the plausible entities (with a `note` explaining why none was picked automatically, e.g. two unrelated meanings share the same word, or a coverage mismatch was detected). **Ask the user to pick one before continuing.** Never guess.
 - **`not_found`** — no matching Wikidata entity. Tell the user plainly; suggest rephrasing.
 
-`missing_languages` lists requested languages with no article for the resolved topic. If present alongside `missing_languages_hint`, see **Missing-language fallback** below before giving up on that language.
+`missing_languages` lists requested languages with no article for the resolved topic — see **Missing language** below for how to handle this.
 
 ### Step 2 — fetch the pageviews time series
 
@@ -95,29 +95,16 @@ python scripts/make_report.py \
 - `data/` and `reports/` accumulate indefinitely (nothing auto-deletes old files — see `README.md`). If either has grown large or clearly contains stale/orphaned files (e.g. a `data/` entry with no matching report anymore), mention it to the user and offer to clean up rather than silently leaving clutter.
 - The chart auto-switches to a log y-axis when compared series differ by >20x in scale, so small-language lines stay visible next to a big one.
 
-## Missing-language fallback (translate, then re-resolve — don't just give up)
+## Missing language — say so plainly, don't substitute a different topic
 
-When `resolve_topic.py` returns a language in `missing_languages`, a sitelink can be missing for two different reasons, and it matters which:
+When `resolve_topic.py` returns a language in `missing_languages`, **tell the user explicitly that no Wikipedia article/topic was found for that language** and leave it out of the comparison (use `make_report.py --missing` as documented below). **Do not try to work around this** by translating the query and re-searching for some other, related Wikidata concept to stand in for it — this was tried and removed: the substitute is frequently a meaningfully different topic (not a confirmed equivalent), which risks quietly comparing two different things under one label. Honest "not found" beats a plausible-looking but unverified substitute.
 
-1. **The Wikidata entity genuinely has no article in that language.** Nothing to do.
-2. **The entity has no label in the language you searched with**, so a related local-language concept never appeared as a search candidate at all — even though a relevant article may exist under a different QID entirely. (Confirmed real case: "intermittent fasting" has no Polish sitelink, but a related Wikidata entity for "Głodówka lecznicza" / therapeutic fasting exists — with no English label, so it's invisible to an English-language search.)
+If a language legitimately *does* have its own specialized article but it happens to be a broader/more general one than the other languages' articles (a normal Wikidata modeling quirk, not something you searched for) — that's a genuine **Tier 2** case, distinct from the above:
 
-To tell these apart and recover case 2: **translate the query into the missing language yourself** (using your own language knowledge — the script cannot do this) and re-run:
+- **Tier 1 — specialized match**: the article's scope and intent genuinely match what's being compared.
+- **Tier 2 — broad/generic proxy**: the available article is much broader than the topic being compared (e.g. the general "English language" article standing in for "learning English"). This is a materially weaker signal for two concrete reasons worth explaining to the user: (1) a broad article's content usually isn't about the specific activity/intent being measured, so its readership may want something else entirely; (2) broad "hub" articles get heavily inflated by incidental in-article links from unrelated pages, not people deliberately searching for that topic, so their traffic is structurally noisier than a narrowly, deliberately-searched article's traffic. Pass this entry to `make_report.py --tier2` so the report explains this in the reader's own methodology section, not just in your chat reply — and be cautious about including Tier 2 entries in any ranked recommendation (a Tier 2 language shouldn't win a "most promising" ranking against Tier 1 languages on the strength of noisy hub traffic).
 
-```bash
-python scripts/resolve_topic.py "<translated term>" --langs <missing_lang> --search-language <missing_lang>
-```
-
-This is best-effort, not guaranteed — a wrong guess at the local term will just return `not_found`. **Try 2-3 different plausible local terms** before giving up on that language honestly (e.g. a formal/clinical phrasing and a colloquial one) — a single failed guess doesn't mean no article exists, just that your first translation didn't match Wikidata's exact wording.
-
-If it *does* resolve, **it is very likely a different QID than your original topic** — a related-but-distinct concept, not a confirmed equivalent. You must disclose this explicitly to the user and label it clearly in any report (see the `make_report.py --data` label convention above) — never present it silently as if it were the same topic just in another language.
-
-**Then judge which tier the match falls into** (this is a language/judgment call you make, not something the script decides):
-
-- **Tier 1 — specialized match**: the fallback concept's scope and intent genuinely match the original topic (narrow, same kind of practice/activity), just a different QID. Compare normally, with the "different concept" disclosure from above.
-- **Tier 2 — broad/generic proxy**: no specialized match exists, so you fell back to a much broader topic (e.g. the general "English language" article standing in for "learning English", or a country/field-level article standing in for a specific practice). This is a materially weaker signal for two concrete reasons worth explaining to the user: (1) a broad article's content usually isn't about the specific activity/intent being measured, so its readership may want something else entirely; (2) broad "hub" articles get heavily inflated by incidental in-article links from unrelated pages, not people deliberately searching for that topic, so their traffic is structurally noisier than a narrowly, deliberately-searched article's traffic. Pass this entry to `make_report.py --tier2` so the report explains this in the reader's own methodology section, not just in your chat reply — and be cautious about including Tier 2 entries in any ranked recommendation (a Tier 2 language shouldn't win a "most promising" ranking against Tier 1 languages on the strength of noisy hub traffic).
-
-**Never downgrade a language that already has a Tier 1 match just to make the comparison look uniform.** Resolve each language independently and let the tiers be mixed in the report (e.g. 1 Tier 1 + 4 Tier 2 is normal and fine, and is *more* informative than flattening everyone to Tier 2) — a report with mixed tiers, correctly labeled per language, is more useful than a falsely-uniform one that throws away a better data point you already had. If you already confirmed a specialized article exists for a language earlier in the conversation, don't silently replace it with a broader one in a later report.
+**Never downgrade a language that already has a Tier 1 match just to make the comparison look uniform.** Resolve each language independently and let the tiers be mixed in the report (e.g. 1 Tier 1 + 4 Tier 2 is normal and fine, and is *more* informative than flattening everyone to Tier 2) — a report with mixed tiers, correctly labeled per language, is more useful than a falsely-uniform one that throws away a better data point you already had.
 
 ## Choosing a "promising" criterion for multi-language/topic comparisons
 
