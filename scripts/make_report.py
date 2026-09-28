@@ -67,6 +67,7 @@ STRINGS = {
         "risk_low_confidence": "низька статистична довіра",
         "risk_tier2": "дані лише по ширшому/суміжному поняттю, не по спеціалізованій темі",
         "assumptions_heading": "Припущення та обмеження",
+        "general_label": "Загальне",
         "missing_data": "Дані відсутні для: {names} - статті на цю тему немає у відповідному мовному розділі Wikipedia, тому вони не включені в порівняння вище.",
         "standing_disclaimer": "Перегляди Wikipedia відображають цікавість/обізнаність, а не намір навчатись чи платити - трактуйте як сигнал для подальшої перевірки, а не остаточний доказ попиту.",
         "outlier_note": "На графіку можуть впадати в очі різкі сплески — {parts}. Це разові аномалії (детальніше - у \"Припущення та обмеження\" нижче), вони НЕ враховані в тренд/зміну %, зазначені в підсумку - тому підсумок може виглядати інакше, ніж загальна форма графіка.",
@@ -91,6 +92,7 @@ STRINGS = {
         "risk_low_confidence": "low statistical confidence",
         "risk_tier2": "data only for a broader/related concept, not the specialized topic",
         "assumptions_heading": "Assumptions & limitations",
+        "general_label": "General",
         "missing_data": "No data for: {names} - no article on this topic exists in the corresponding language edition of Wikipedia, so they aren't included in the comparison above.",
         "standing_disclaimer": "Wikipedia pageviews reflect curiosity/awareness, not intent to learn or pay - treat this as a signal worth further validation, not final proof of demand.",
         "outlier_note": "The chart may show sharp spikes that catch the eye — {parts}. These are one-off anomalies (see \"Assumptions & limitations\" below for details) and are NOT included in the trend/% change reported in the summary - so the summary can look different from the chart's overall shape.",
@@ -324,21 +326,25 @@ def summary_bullets(entries: list, lang: str = "en") -> list:
     return bullets
 
 
-def assumptions_and_limitations(entries: list, missing_labels: list = None, lang: str = "en") -> list:
-    seen = []
-    if missing_labels:
-        seen.append(t(lang, "missing_data", names=", ".join(missing_labels)))
-    multiple = len(entries) > 1
+def assumptions_and_limitations(entries: list, missing_labels: list = None, lang: str = "en") -> dict:
+    """Grouped by entry instead of one flat list with the entry's full label
+    (including any Tier 2 parenthetical explanation) repeated on every single
+    line - that got unreadable fast with 2+ entries and a long label. Each
+    entry's own reasons are listed once under its own label as a sub-heading;
+    truly general items (missing data, the standing disclaimer) go in their
+    own "general" bucket, not attached to any one entry."""
+    per_entry = {}
     for entry in entries:
-        for reason in entry["analysis"].get("reasons", []):
-            # Prefix with the entry's label when comparing 2+ entries, so a
-            # generic-sounding reason (e.g. "avg traffic ~8 views/day") is
-            # never left ambiguous about which language/article it's about.
-            labeled = f"<b>{entry['label']}</b>: {reason}" if multiple else reason
-            if labeled not in seen:
-                seen.append(labeled)
-    seen.append(t(lang, "standing_disclaimer"))
-    return seen
+        reasons = list(dict.fromkeys(entry["analysis"].get("reasons", [])))  # de-dupe, keep order
+        if reasons:
+            per_entry[entry["label"]] = reasons
+
+    general = []
+    if missing_labels:
+        general.append(t(lang, "missing_data", names=", ".join(missing_labels)))
+    general.append(t(lang, "standing_disclaimer"))
+
+    return {"per_entry": per_entry, "general": general}
 
 
 def outlier_chart_note(entries: list, lang: str = "en") -> str:
@@ -372,9 +378,12 @@ def build_pdf(output_path: Path, title: str, question: str, entries: list, chart
     # (a "+1" for a 5-sentence recommendation is way off), so weight bullets
     # by roughly how many lines they'd wrap to (~80 chars/line at this font
     # size) instead of just counting entries.
-    all_bullets = (summary_bullets(entries, lang) + assumptions_and_limitations(entries, missing_labels, lang)
-                   + risk_flags(entries, tier2_labels, lang))
-    content_score = sum(max(1, len(b) // 80 + 1) for b in all_bullets)
+    assumptions = assumptions_and_limitations(entries, missing_labels, lang)
+    assumptions_bullets = [r for reasons in assumptions["per_entry"].values() for r in reasons] + assumptions["general"]
+    # +1 per entry for its own sub-heading line, which the flat bullet list
+    # above doesn't otherwise account for.
+    all_bullets = summary_bullets(entries, lang) + assumptions_bullets + risk_flags(entries, tier2_labels, lang)
+    content_score = sum(max(1, len(b) // 80 + 1) for b in all_bullets) + len(assumptions["per_entry"])
     if recommendation:
         content_score += len(recommendation) // 80 + 1
     outlier_note = outlier_chart_note(entries, lang)
@@ -438,10 +447,20 @@ def build_pdf(output_path: Path, title: str, question: str, entries: list, chart
             ))
 
     story.append(Paragraph(t(lang, "assumptions_heading"), heading_style))
-    story.append(ListFlowable(
-        [ListItem(Paragraph(r, body_style)) for r in assumptions_and_limitations(entries, missing_labels, lang)],
-        bulletType="bullet",
-    ))
+    entry_label_style = ParagraphStyle("EntryLabel", parent=body_style, fontName="DejaVuSans-Bold", spaceBefore=4 * scale)
+    for label, reasons in assumptions["per_entry"].items():
+        story.append(Paragraph(label, entry_label_style))
+        story.append(ListFlowable(
+            [ListItem(Paragraph(r, body_style)) for r in reasons],
+            bulletType="bullet",
+        ))
+    if assumptions["general"]:
+        if assumptions["per_entry"]:
+            story.append(Paragraph(t(lang, "general_label"), entry_label_style))
+        story.append(ListFlowable(
+            [ListItem(Paragraph(r, body_style)) for r in assumptions["general"]],
+            bulletType="bullet",
+        ))
 
     story.append(Spacer(1, 0.6 * cm * scale))
     generated = datetime.now().strftime("%Y-%m-%d %H:%M")
