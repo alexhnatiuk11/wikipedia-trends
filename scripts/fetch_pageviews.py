@@ -58,6 +58,14 @@ def _get_with_retries(url: str, not_found_message: str, retries: int = 4) -> dic
             last_error = "429 Too Many Requests"
             time.sleep(wait)
             continue
+        if 400 <= resp.status_code < 500:
+            # Any other 4xx (e.g. 400 for a malformed date like "2024ab01")
+            # is a permanent client-side problem, not a transient one -
+            # retrying it produces the same error every time and just wastes
+            # ~4x the backoff delay for nothing.
+            raise RuntimeError(
+                f"{resp.status_code} error requesting {url}: {resp.text[:300]}"
+            )
         try:
             resp.raise_for_status()
             return resp.json()
@@ -96,6 +104,20 @@ def _series_from_items(items: list) -> list:
     return series
 
 
+# The modern per-article/aggregate pageviews API has no data before this
+# date (confirmed live: a request starting 20150601 monthly returns data
+# only from 2015-07 onward). A request for "the last 50 years" is common
+# from an agent that doesn't know this, so cap it here instead of returning
+# a confusing empty/404 result for the unreachable portion of the range.
+PAGEVIEWS_COVERAGE_START = "20150701"
+
+
+def _cap_start_to_coverage(start: str) -> tuple:
+    if start < PAGEVIEWS_COVERAGE_START:
+        return PAGEVIEWS_COVERAGE_START, True
+    return start, False
+
+
 def _cap_end_to_today(end: str) -> tuple:
     """A request for data through a future date (e.g. the nominal last day
     of the current, still-ongoing month) doesn't error - the API just
@@ -110,9 +132,19 @@ def _cap_end_to_today(end: str) -> tuple:
     return end, False
 
 
+def _range_note(start_capped: bool, start: str, end_capped: bool, end: str) -> str:
+    notes = []
+    if start_capped:
+        notes.append(f"requested start date was before pageviews data exists; capped to {start}")
+    if end_capped:
+        notes.append(f"requested end date was in the future; capped to today ({end})")
+    return "; ".join(n[0].upper() + n[1:] for n in notes)
+
+
 def fetch(lang: str, article: str, start: str, end: str, granularity: str = "daily",
           access: str = "all-access", agent: str = "user", use_cache: bool = True) -> dict:
-    end, capped = _cap_end_to_today(end)
+    start, start_capped = _cap_start_to_coverage(start)
+    end, end_capped = _cap_end_to_today(end)
     project = f"{lang}.wikipedia"
     cache_file = _cache_path("per-article", project, article, access, agent, granularity, start, end)
 
@@ -128,6 +160,7 @@ def fetch(lang: str, article: str, start: str, end: str, granularity: str = "dai
     )
     raw_response = _get_with_retries(url, not_found)
 
+    note = _range_note(start_capped, start, end_capped, end)
     result = {
         "project": project,
         "article": article,
@@ -138,7 +171,7 @@ def fetch(lang: str, article: str, start: str, end: str, granularity: str = "dai
         "end": end,
         "series": _series_from_items(raw_response.get("items", [])),
         "cache_hit": False,
-        **({"note": f"Requested end date was in the future; capped to today ({end})."} if capped else {}),
+        **({"note": note} if note else {}),
     }
 
     if use_cache:
@@ -153,7 +186,8 @@ def fetch_aggregate(lang: str, start: str, end: str, granularity: str = "daily",
     a baseline: if an article's growth is no better than the whole language
     edition's growth, it isn't really "rising interest in the topic" - the
     project is just getting more readers overall."""
-    end, capped = _cap_end_to_today(end)
+    start, start_capped = _cap_start_to_coverage(start)
+    end, end_capped = _cap_end_to_today(end)
     project = f"{lang}.wikipedia"
     cache_file = _cache_path("aggregate", project, access, agent, granularity, start, end)
 
@@ -164,6 +198,7 @@ def fetch_aggregate(lang: str, start: str, end: str, granularity: str = "daily",
     not_found = f"404 Not Found: no aggregate data for project '{project}' for this range."
     raw_response = _get_with_retries(url, not_found)
 
+    note = _range_note(start_capped, start, end_capped, end)
     result = {
         "project": project,
         "article": None,
@@ -174,7 +209,7 @@ def fetch_aggregate(lang: str, start: str, end: str, granularity: str = "daily",
         "end": end,
         "series": _series_from_items(raw_response.get("items", [])),
         "cache_hit": False,
-        **({"note": f"Requested end date was in the future; capped to today ({end})."} if capped else {}),
+        **({"note": note} if note else {}),
     }
 
     if use_cache:
@@ -201,6 +236,22 @@ def main():
 
     if not args.aggregate and not args.article:
         print(json.dumps({"status": "error", "message": "--article is required unless --aggregate is set"}))
+        sys.exit(1)
+
+    for flag, value in (("--start", args.start), ("--end", args.end)):
+        try:
+            datetime.strptime(value, "%Y%m%d")
+        except ValueError:
+            print(json.dumps({
+                "status": "error",
+                "message": f"{flag} '{value}' is not a valid YYYYMMDD date.",
+            }))
+            sys.exit(1)
+    if args.start > args.end:
+        print(json.dumps({
+            "status": "error",
+            "message": f"--start ({args.start}) is after --end ({args.end}).",
+        }))
         sys.exit(1)
 
     try:

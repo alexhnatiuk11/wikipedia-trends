@@ -32,6 +32,12 @@ These were picked by hand against ~20 manually-run test queries during developme
 | `growth_pct` "close to baseline" band | ±5 percentage points | inside this band, article growth is treated as just riding the project's own trend, not topic-specific |
 | pool dominance ratio (`resolve_topic.py`) | 3.0x | a coverage "winner" among equally-matched candidates must have ≥3x the sitelinks of the runner-up to auto-resolve; otherwise `ambiguous` |
 
+## Input limits and validation (defended in code, not just prompted)
+
+- **Date range**: `--start`/`--end` must be valid `YYYYMMDD` with `start <= end`, or `fetch_pageviews.py` errors immediately (no wasted retries on a permanent client error). `--end` after today is auto-capped to today; `--start` before `2015-07-01` (the earliest date the pageviews API has any data for, confirmed live) is auto-capped to that date. Both caps report a `note` explaining what happened.
+- **Language codes**: `resolve_topic.py --langs` accepts at most 100 codes per call, erroring clearly above that — large batches don't scale because each language needs its own sequential `fetch_pageviews.py` call under a tight rate limit. A garbage/unrecognized language code isn't rejected outright; it just never matches a sitelink, so it comes back in `missing_languages` indistinguishable from "this language legitimately has no article."
+- **Nonexistent topic**: `resolve_topic.py` returns `status: not_found` with empty `candidates`, handled the same as any other resolution outcome.
+
 ## Known methodological limitations
 
 - **Outlier detection is a global median/MAD test**, not trend-aware. On a series with a strong secular decline, the highest early points can get flagged as "outliers" even though they're just the natural start of the trend, not an anomaly. Conversely, a recurring seasonal spike (e.g. September back-to-school bump) is sometimes missed because it isn't extreme relative to the *whole* series. Don't present outlier flags as infallible. Also: 2+ outliers isn't necessarily 2+ unrelated one-off events — see the `outliers[]` guidance in `SKILL.md`.

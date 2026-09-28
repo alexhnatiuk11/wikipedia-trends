@@ -343,6 +343,28 @@ def main():
         print(json.dumps({"status": "error", "message": "--langs must contain at least one language code"}))
         sys.exit(1)
 
+    # There are ~300 Wikipedia language editions in total, so this is a
+    # generous ceiling, not an arbitrary small one - it exists to fail fast
+    # and clearly on a mistaken/pathological request (e.g. 1000 repeated or
+    # junk codes) instead of silently building a huge sitefilter query and
+    # then letting the caller find out the hard way when fetch_pageviews.py
+    # has to be run once per language downstream, sequentially, against a
+    # tightly rate-limited API.
+    MAX_LANGS = 100
+    if len(langs) > MAX_LANGS:
+        print(json.dumps({
+            "status": "error",
+            "message": (
+                f"{len(langs)} languages requested, exceeds the {MAX_LANGS} limit. "
+                f"Wikipedia has roughly 300 language editions total, but each one "
+                f"requires its own sequential pageviews fetch later in the pipeline "
+                f"under a tight API rate limit, so requests this large aren't "
+                f"practical in one run. Narrow to the languages that actually matter "
+                f"for this comparison, or split into smaller batches."
+            ),
+        }))
+        sys.exit(1)
+
     try:
         result = resolve(args.query, langs, args.search_language, use_cache=not args.no_cache)
     except RuntimeError as exc:
