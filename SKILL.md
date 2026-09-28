@@ -49,6 +49,7 @@ python scripts/fetch_pageviews.py --lang pl --article "Sztuczna_inteligencja" \
 - A malformed date (`--start`/`--end` not valid `YYYYMMDD`, or `--start` after `--end`) fails immediately with a clear `status: error` — no retries, no confusing generic network error. Treat this as your own mistake to fix before re-running (e.g. don't ask the user to clarify a date you typo'd yourself).
 - **An unrecognized/made-up language code (`--lang`) is not distinguished from "no article in that language"** by `resolve_topic.py` — both simply show up as `missing_languages`. Sanity-check obviously-wrong codes yourself (e.g. not 2-3 lowercase letters, or a code you don't recognize as a real Wikipedia edition) before running the pipeline on them, and say so to the user plainly rather than reporting "no article found" for a language that doesn't actually exist.
 - `resolve_topic.py --langs` caps at 100 codes per call and errors clearly above that (there are ~300 real Wikipedia editions total, but each one needs its own sequential `fetch_pageviews.py` call downstream under a tight rate limit, so anything close to "all languages" isn't practical in one request). If a user asks for an unrealistically large language set, don't try to force it through — tell them plainly and ask them to narrow to the languages that actually matter for their decision, or offer to run a smaller representative batch instead.
+- **`make_report.py` separately caps at 5 `--data` entries per report** (chart legend and per-entry assumptions stop being readable well before 100) — see **Comparing many languages/topics at once** below. Check the requested language/topic count *at Step 1*, before running steps 2-3 for all of them, so you don't waste time fetching data for languages you'll have to drop later at Step 4.
 - **Cache never expires on its own.** Every script (`resolve_topic.py`, `fetch_pageviews.py`, `device_profile.py`) returns `cache_hit` and, when true, `cache_age_days`. Don't silently serve old cached data without saying so: if `cache_age_days` is more than a few days, tell the user data this old was used and **ask whether to refetch fresh (`--no-cache`) or keep the cached numbers** — don't decide for them. For a brand-new question (first time asking about this topic/language), a cache hit means someone already asked this recently; mention it in passing rather than making it the headline.
 - Add `--aggregate` (drop `--article`) to fetch whole-project traffic instead of one article — normally you don't need this yourself, `analyze_trends.py` does it automatically (see step 3).
 
@@ -141,6 +142,14 @@ If a language legitimately *does* have its own specialized article but it happen
 | an emerging niche, not just noise | small `avg_views_per_day` **and** positive `relative_growth_pct` |
 
 When ranking many languages/topics at once (10+), mention that the single "winner" could partly be due to chance (multiple-comparisons effect) rather than presenting it as a definitive pick.
+
+## Comparing many languages/topics at once (more than 5)
+
+A single chart/report only fits **5** items well (see `make_report.py`'s hard limit above) — beyond that the legend and the PDF's per-entry assumptions section stop being readable, which defeats the point of a comparison report. If a user asks to compare more than 5 languages/topics:
+
+1. **Ask which criterion matters to them** (see the table above) if they haven't said, then use it to narrow the full set down to the top 5 by that criterion — you still need real numbers to rank by, so for a first pass either run `resolve_topic.py` + a cheap `fetch_pageviews.py`/`analyze_trends.py` pass across the full set to rank, or ask the user to pre-narrow the list themselves if fetching all of them first is impractical (e.g. 20+ candidates).
+2. **Tell the user you narrowed it down and why**, listing which languages/topics you dropped and the criterion used — don't silently produce a 5-item report from a 20-item request without saying so.
+3. **If the user insists on seeing all of them**, offer multiple reports (e.g. two reports of 5 each, or one grouped by region/criterion) rather than forcing everything into one unreadable chart — this is a real limitation to be upfront about, not something to route around silently.
 
 ## Standing disclaimer
 

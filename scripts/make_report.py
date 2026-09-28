@@ -512,6 +512,25 @@ def main():
         print(json.dumps({"status": "error", "message": str(exc)}))
         sys.exit(1)
 
+    # More than a handful of curves on one chart stops being readable (long
+    # legend entries wrap/collide, the log-scale cutoff for >20x-scale series
+    # gets crowded) and the one-page PDF's per-entry assumptions section
+    # gets noisy too. Cap it here rather than silently producing something
+    # unreadable - see README.md for the reasoning and the roadmap idea for
+    # a "top N by relevance + N runners-up" pre-filter instead of a flat cap.
+    MAX_ENTRIES = 5
+    if len(entries) > MAX_ENTRIES:
+        print(json.dumps({
+            "status": "error",
+            "message": (
+                f"{len(entries)} --data entries given, exceeds the {MAX_ENTRIES}-entry limit for "
+                f"one chart/report. Past this many series, the chart legend and the PDF's per-entry "
+                f"assumptions section stop being readable. Narrow to the {MAX_ENTRIES} languages/topics "
+                f"that matter most for this decision, or split into multiple reports."
+            ),
+        }))
+        sys.exit(1)
+
     missing_labels = [sanitize_text(x.strip()) for x in args.missing.split(",") if x.strip()]
     tier2_labels = [sanitize_text(x.strip()) for x in args.tier2.split(",") if x.strip()]
     title = sanitize_text(args.title)
