@@ -54,7 +54,7 @@ The current pipeline handles single comparisons well (a few topics/languages, a 
 - **Related-topic discovery via Wikidata's own graph** (e.g. `subclass of` / `part of` statements) to proactively suggest adjacent topics worth checking, building on the "top most-viewed pages" endpoint already scoped but not yet wired in (see APIs used, above).
 - **Parallel, rate-limit-aware fetching** for large language/topic sets. Sequential fetching is fine up to roughly 15 languages (~40s observed); it would need to be parallelized with its own concurrency-aware backoff to stay practical much beyond that.
 - **A real automated test suite** (there isn't one yet — see below) so future changes to the statistical/disambiguation logic can be checked against a fixed set of known cases instead of only manual, ad hoc verification.
-- **Multi-page/interactive HTML reports** as an option alongside the one-page PDF, for research that outgrows what fits on a single page.
+- **Multi-page reports** as an option alongside the always-one-page PDF, for research that outgrows what fits on a single page. (The interactive-chart part of this idea is already done — every report ships a self-contained `.chart.html` alongside the PDF; a richer charting library or dashboard-style layout, e.g. Dash or fuller use of Plotly's features - linked multi-panel views, dropdown filters - is a separate, still-open idea, since today's chart is a fairly basic line-plot.)
 
 ## Cache layout
 
